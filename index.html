@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 교안 요약 및 4지선다 문제 풀이 시스템</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            900: '#1e3a8a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-brand-600 text-white shadow-md">
+        <div class="max-w-5xl mx-auto px-6 py-4 flex justify-between items-center">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                📚 스마트 교안 요약 및 평가 시스템
+            </h1>
+            <button type="button" onclick="openApiKeyModal()" class="bg-brand-700 hover:bg-brand-800 text-sm px-4 py-2 rounded-lg font-medium transition cursor-pointer">
+                🔑 API 키 설정
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-5xl mx-auto px-6 py-8 flex-grow w-full space-y-8">
+        
+        <!-- Welcome Card -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h2 class="text-lg font-semibold text-brand-900">PDF 파일 분석 </h2>
+                <p class="text-sm text-slate-500 mt-1">교안 내용을 입력하면 핵심 요약과 직접 풀 수 있는 4지선다 10문제가 생성됩니다.</p>
+            </div>
+            <div id="apiKeyStatus" class="text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-100 text-amber-800">
+                ⚠️ Gemini API 키를 먼저 설정해주세요
+            </div>
+        </div>
+
+        <!-- Upload & Input Section -->
+        <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- PDF 업로드 -->
+                <div class="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-brand-500 transition cursor-pointer flex flex-col justify-center items-center" onclick="document.getElementById('pdfFile').click()">
+                    <input type="file" id="pdfFile" accept=".pdf,.txt" class="hidden" onchange="handleFileSelect(event)">
+                    <div class="text-3xl mb-2">📄</div>
+                    <p class="font-medium text-slate-700 text-sm" id="fileNameDisplay">PDF/TXT 파일 업로드하기</p>
+                    <p class="text-xs text-slate-400 mt-1">클릭하여 교안 파일을 선택하세요</p>
+                </div>
+
+                <!-- 직접 텍스트 붙여넣기 -->
+                <div class="space-y-2">
+                    <label class="block text-xs font-semibold text-slate-700">✍️ 교안 내용 직접 붙여넣기 (가장 확실함)</label>
+                    <textarea id="directTextInput" placeholder="요약할 교안 텍스트를 이곳에 붙여넣어 주세요. (비워둘 시 기본 총무 교안 내용으로 자동 실습됩니다)" class="w-full h-28 border border-slate-300 rounded-xl p-3 text-xs focus:outline-none focus:border-brand-500 resize-none"></textarea>
+                </div>
+            </div>
+
+            <button type="button" onclick="generateContent()" id="generateBtn" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-3.5 rounded-xl transition shadow-sm cursor-pointer">
+                🚀 요약 및 4지선다 10문제 생성하기
+            </button>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div id="loading" class="hidden flex flex-col items-center justify-center py-12 space-y-4">
+            <div class="animate-spin rounded-full h-12 w-12 border-4 border-brand-500 border-t-transparent"></div>
+            <p class="text-sm font-medium text-slate-600" id="loadingText">Gemini AI가 교안을 분석하고 있습니다...</p>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results" class="hidden space-y-8">
+            <!-- Summary Card -->
+            <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                <h3 class="text-xl font-bold text-brand-900 border-b pb-3 flex items-center gap-2">
+                    📝 1. 교안 주요 내용 요약
+                </h3>
+                <div id="summaryContent" class="prose max-w-none text-slate-700 leading-relaxed space-y-3"></div>
+            </div>
+
+            <!-- Quiz Card -->
+            <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+                <div class="flex justify-between items-center border-b pb-3">
+                    <h3 class="text-xl font-bold text-brand-900 flex items-center gap-2">
+                        ❓ 2. 예상 문제 (4지선다 10문항 인터랙티브 퀴즈)
+                    </h3>
+                    <span id="scoreDisplay" class="text-sm font-semibold text-brand-600 bg-brand-50 px-3 py-1 rounded-full">맞춘 개수: 0 / 10</span>
+                </div>
+                <div id="quizContent" class="space-y-6"></div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- API Key Modal -->
+    <div id="apiKeyModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 class="text-lg font-bold text-slate-900">Gemini API 키 설정</h3>
+            <p class="text-xs text-slate-500">입력하신 API 키는 브라우저의 LocalStorage에 안전하게 저장됩니다.</p>
+            <input type="password" id="apiKeyInput" placeholder="AIzaSy..." class="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500">
+            <div class="flex justify-end gap-2 pt-2">
+                <button type="button" onclick="closeApiKeyModal()" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer">취소</button>
+                <button type="button" onclick="saveApiKey()" class="px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 cursor-pointer">저장하기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-400 mt-12">
+        Digital Marketing Department • Vibe Coding Midterm Project
+    </footer>
+
+    <!-- JavaScript Logic -->
+    <script>
+        let fileTextContent = "";
+        let quizData = [];
+        let score = 0;
+
+        window.onload = function() {
+            checkApiKeyStatus();
+        };
+
+        function checkApiKeyStatus() {
+            const key = localStorage.getItem('gemini_api_key');
+            const statusBadge = document.getElementById('apiKeyStatus');
+            if (key) {
+                statusBadge.className = "text-xs font-semibold px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-800";
+                statusBadge.innerText = "✅ API 키 설정 완료";
+            } else {
+                statusBadge.className = "text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-100 text-amber-800";
+                statusBadge.innerText = "⚠️ Gemini API 키를 먼저 설정해주세요";
+            }
+        }
+
+        function openApiKeyModal() {
+            const key = localStorage.getItem('gemini_api_key') || '';
+            document.getElementById('apiKeyInput').value = key;
+            document.getElementById('apiKeyModal').classList.remove('hidden');
+        }
+
+        function closeApiKeyModal() {
+            document.getElementById('apiKeyModal').classList.add('hidden');
+        }
+
+        function saveApiKey() {
+            const key = document.getElementById('apiKeyInput').value.trim();
+            if (!key) {
+                alert('유효한 API 키를 입력해주세요.');
+                return;
+            }
+            localStorage.setItem('gemini_api_key', key);
+            closeApiKeyModal();
+            checkApiKeyStatus();
+            alert('API 키가 안전하게 저장되었습니다!');
+        }
+
+        async function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            document.getElementById('fileNameDisplay').innerText = `선택됨: ${file.name}`;
+            document.getElementById('loadingText').innerText = "파일에서 텍스트를 읽어오는 중...";
+            document.getElementById('loading').classList.remove('hidden');
+
+            try {
+                if (file.type === "application/pdf" || file.name.endsWith('.pdf')) {
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                    let fullText = "";
+
+                    const maxPages = Math.min(pdf.numPages, 15);
+                    for (let i = 1; i <= maxPages; i++) {
+                        const page = await pdf.getPage(i);
+                        const textContent = await page.getTextContent();
+                        const pageText = textContent.items.map(item => item.str).join(" ");
+                        fullText += pageText + "\n\n";
+                    }
+                    fileTextContent = fullText;
+                    document.getElementById('directTextInput').value = fullText;
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        fileTextContent = e.target.result;
+                        document.getElementById('directTextInput').value = fileTextContent;
+                    };
+                    reader.readAsText(file);
+                }
+                alert('교안 파일 읽기가 완료되었습니다!');
+            } catch (error) {
+                alert('파일 읽기 오류: ' + error.message);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        }
+
+        async function generateContent() {
+            const apiKey = localStorage.getItem('gemini_api_key');
+            if (!apiKey) {
+                alert('우측 상단에서 Gemini API 키를 먼저 설정해주세요!');
+                openApiKeyModal();
+                return;
+            }
+
+            let sourceText = document.getElementById('directTextInput').value.trim() || fileTextContent.trim();
+            
+            if (!sourceText) {
+                sourceText = `
+                    [총무 업무 환경 분석 교안 내용]
+                    - 사명(Mission): 기업이 존재하는 근본적인 이유 / 비전(Vision): 미래 열망 모습
+                    - 조직 전략 체계: 전사 전략 -> 사업부 전략 -> 부서 전략 (총무 부서는 기능 부서인 부서 전략에 위치)
+                    - 환경 분석의 기초: 외부 환경 분석(거시 환경, 산업 환경)과 내부 환경 분석의 결합
+                    - 총무 부서의 역할: 자산 관리, 문서 관리, 보안 업무, 사무 환경, 의전 및 행사, 복리후생 등
+                    - 환경 분석 4단계: 01 이슈 확인 -> 02 업무 기능 연결 -> 03 핵심 요인 도출 -> 04 자료 수집 및 분석
+                `;
+            }
+
+            document.getElementById('loadingText').innerText = "Gemini AI가 교안 분석 및 4지선다 퀴즈를 출제하는 중입니다...";
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('results').classList.add('hidden');
+
+            // AI에게 JSON 구조 형태로 명확하게 출력을 요구하여 파싱하기 쉽도록 지시
+            const prompt = `
+                당신은 전문 교육 AI입니다. 아래 교안 내용을 바탕으로 요약과 4지선다 객관식 문제 10개를 만들어 주세요.
+                반드시 아래 JSON 형식으로만 응답해 주세요. 다른 마크다운이나 인사말을 포함하지 말고 순수 JSON 문자열만 출력해 주세요.
+
+                {
+                  "summary": "교안의 핵심 내용 요약 텍스트 (줄바꿈은 \\n 사용)",
+                  "questions": [
+                    {
+                      "question": "문제 내용",
+                      "options": ["1번 보기", "2번 보기", "3번 보기", "4번 보기"],
+                      "answerIndex": 정답인 보기의 인덱스 (0부터 3까지의 숫자),
+                      "explanation": "상세한 해설"
+                    }
+                  ]
+                }
+                (총 10개의 문제를 만들어 주세요)
+
+                [교안 내용]
+                ${sourceText}
+            `;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }]
+                    })
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error.message);
+                }
+
+                let rawText = data.candidates[0].content.parts[0].text;
+                
+                // 불필요한 백틱 제거 및 JSON 파싱
+                rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+                const parsedData = JSON.parse(rawText);
+
+                renderResults(parsedData);
+
+            } catch (error) {
+                alert('데이터 생성 중 오류가 발생했습니다. 다시 시도해 주세요.\n(상세: ' + error.message + ')');
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        }
+
+        function renderResults(data) {
+            document.getElementById('results').classList.remove('hidden');
+            
+            // 1. 요약 렌더링
+            document.getElementById('summaryContent').innerHTML = `<div class="whitespace-pre-line text-slate-700 leading-relaxed">${escapeHtml(data.summary)}</div>`;
+
+            // 2. 퀴즈 데이터 초기화 및 렌더링
+            quizData = data.questions;
+            score = 0;
+            updateScoreDisplay();
+
+            let quizHTML = "";
+            quizData.forEach((q, qIdx) => {
+                let optionsHTML = "";
+                q.options.forEach((opt, oIdx) => {
+                    optionsHTML += `
+                        <button type="button" onclick="checkAnswer(${qIdx}, ${oIdx}, this)" class="w-full text-left p-3 rounded-xl border border-slate-200 bg-white hover:bg-brand-50 text-sm font-medium transition cursor-pointer option-btn-${qIdx}">
+                            ${opt}
+                        </button>
+                    `;
+                });
+
+                quizHTML += `
+                    <div class="p-6 bg-slate-50 rounded-2xl border border-slate-200 space-y-4" id="question-card-${qIdx}">
+                        <h4 class="font-bold text-slate-900 text-base">Q${qIdx + 1}. ${escapeHtml(q.question)}</h4>
+                        <div class="grid grid-cols-1 gap-2">${optionsHTML}</div>
+                        <div id="feedback-${qIdx}" class="hidden p-4 rounded-xl text-xs space-y-1"></div>
+                    </div>
+                `;
+            });
+
+            document.getElementById('quizContent').innerHTML = quizHTML;
+        }
+
+        function checkAnswer(qIdx, selectedIdx, btnElement) {
+            const q = quizData[qIdx];
+            const card = document.getElementById(`question-card-${qIdx}`);
+            const feedbackDiv = document.getElementById(`feedback-${qIdx}`);
+            const optionButtons = card.querySelectorAll(`.option-btn-${qIdx}`);
+
+            // 이미 풀었던 문제면 중복 채점 방지
+            if (card.dataset.solved === "true") return;
+            card.dataset.solved = "true";
+
+            // 모든 보기 버튼 비활성화
+            optionButtons.forEach(btn => btn.disabled = true);
+
+            const isCorrect = (selectedIdx === q.answerIndex);
+            if (isCorrect) {
+                score++;
+                btnElement.className = "w-full text-left p-3 rounded-xl border border-emerald-500 bg-emerald-50 text-emerald-900 text-sm font-bold";
+                feedbackDiv.className = "p-4 rounded-xl text-xs space-y-1 bg-emerald-100 text-emerald-900 border border-emerald-200 block";
+                feedbackDiv.innerHTML = `✅ <b>정답입니다!</b><br>💡 <b>해설:</b> ${escapeHtml(q.explanation)}`;
+            } else {
+                btnElement.className = "w-full text-left p-3 rounded-xl border border-rose-500 bg-rose-50 text-rose-900 text-sm font-bold";
+                // 정답 버튼도 표시
+                optionButtons[q.answerIndex].className = "w-full text-left p-3 rounded-xl border border-emerald-500 bg-emerald-50 text-emerald-900 text-sm font-bold";
+                feedbackDiv.className = "p-4 rounded-xl text-xs space-y-1 bg-rose-100 text-rose-900 border border-rose-200 block";
+                feedbackDiv.innerHTML = `❌ <b>오답입니다!</b> (정답: ${q.options[q.answerIndex]})<br>💡 <b>해설:</b> ${escapeHtml(q.explanation)}`;
+            }
+
+            updateScoreDisplay();
+        }
+
+        function updateScoreDisplay() {
+            document.getElementById('scoreDisplay').innerText = `맞춘 개수: ${score} / ${quizData.length}`;
+        }
+
+        function escapeHtml(string) {
+            return String(string).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+    </script>
+</body>
+</html>
